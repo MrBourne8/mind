@@ -96,6 +96,7 @@ body.bg-custom {
     /* цвета задаются через --miro-bg / --miro-grid */
 }
 
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--miro-bg);
