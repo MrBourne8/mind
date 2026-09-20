@@ -652,6 +652,16 @@ svg.lines path {
     box-shadow: var(--miro-shadow-lg);
 }
 
+body.map-fixed .node {
+    cursor: default;
+}
+
+body.map-fixed .node.dragging {
+    cursor: default;
+    opacity: 1;
+    transform: none;
+}
+
 .node.editing {
     cursor: text;
     user-select: text;

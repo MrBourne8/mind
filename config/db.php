@@ -8,19 +8,29 @@ function getDb(): PDO
         return $pdo;
     }
 
-    $legacyDir = dirname(__DIR__) . '/data';
-    $legacyPath = $legacyDir . '/mind.sqlite';
-
-    // На D: может не быть места — храним БД в LOCALAPPDATA (обычно C:)
-    $base = getenv('LOCALAPPDATA') ?: getenv('HOME') ?: $legacyDir;
-    $dir = rtrim(str_replace('\\', '/', $base), '/') . '/MindBoard';
+    $dir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data';
     if (!is_dir($dir)) {
         mkdir($dir, 0755, true);
     }
-    $path = $dir . '/mind.sqlite';
+    $path = $dir . DIRECTORY_SEPARATOR . 'mind.sqlite';
 
-    if (!is_file($path) && is_file($legacyPath)) {
-        @copy($legacyPath, $path);
+    // если недавно писали в LOCALAPPDATA — перенести актуальные данные на D:
+    $appData = getenv('LOCALAPPDATA');
+    if ($appData) {
+        $migrated = rtrim(str_replace('\\', '/', $appData), '/') . '/MindBoard/mind.sqlite';
+        $migratedWin = $appData . DIRECTORY_SEPARATOR . 'MindBoard' . DIRECTORY_SEPARATOR . 'mind.sqlite';
+        $src = is_file($migratedWin) ? $migratedWin : (is_file($migrated) ? $migrated : null);
+        if ($src && is_file($src)) {
+            $needCopy = !is_file($path) || filemtime($src) >= filemtime($path);
+            if ($needCopy) {
+                @copy($src, $path);
+                foreach (['-wal', '-shm'] as $suf) {
+                    if (is_file($src . $suf)) {
+                        @copy($src . $suf, $path . $suf);
+                    }
+                }
+            }
+        }
     }
 
     $pdo = new PDO('sqlite:' . $path);
@@ -41,4 +51,10 @@ function getDb(): PDO
     ");
 
     return $pdo;
+}
+
+/** Абсолютный путь к файлу SQLite (для отладки). */
+function getDbPath(): string
+{
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'mind.sqlite';
 }

@@ -54,13 +54,14 @@
     let panX = 0, panY = 0;
     let currentTool = 'select';
     let currentLayout = 'radial';
+    let mapMode = 'free'; // free | fixed
     let currentShape = 'capsule';
     let bgMode = 'miro'; // miro | custom
     let bgColor = '#FFFFFF';
-    let lineMode = 'theme';   // theme | solid | rainbow
+    let lineMode = 'theme';   // theme | solid | rainbow | branch
     let lineColor = '#C8C5BE';
     let currentLineStyle = 'curve'; // curve | roundedElbow | elbow | straight | bight | fold
-    let topicMode = 'theme';  // theme | solid | rainbow
+    let topicMode = 'theme';  // theme | solid | rainbow | branch
     let topicColor = '#FFFFFF';
     let dirty = false;
     let saveInFlight = false;
@@ -110,6 +111,24 @@
 
     function rainbowColor(id) {
         return RAINBOW[hashColorIndex(id, RAINBOW.length)];
+    }
+
+    /** Корень ветки = потомок корня карты (1-й уровень). */
+    function branchSeedId(id) {
+        let cur = id;
+        while (cur && nodes[cur] && nodes[cur].parentId) {
+            const p = nodes[cur].parentId;
+            if (!nodes[p] || !nodes[p].parentId) return cur;
+            cur = p;
+        }
+        return id;
+    }
+
+    /** Цвет ветки: свой customStyle.bg, иначе радуга по seed ветки (без наследования от предков). */
+    function branchColorOf(id) {
+        const n = nodes[id];
+        if (n && n.customStyle && n.customStyle.bg) return n.customStyle.bg;
+        return rainbowColor(branchSeedId(id));
     }
 
     function contrastText(hex) {
@@ -198,6 +217,7 @@
     function lineStrokeFor(nodeId) {
         const n = nodes[nodeId];
         if (n && n.lineColor) return n.lineColor;
+        if (lineMode === 'branch') return branchColorOf(nodeId);
         if (lineMode === 'rainbow') return rainbowColor(nodeId);
         if (lineMode === 'solid') return lineColor;
         return getComputedStyle(document.body).getPropertyValue('--line-color').trim() || '#C8C5BE';
@@ -373,6 +393,7 @@
         el.style.background = '';
         el.style.borderColor = '';
         el.style.color = '';
+        el.style.border = '';
         const textEl = el.querySelector('.node-text');
         if (textEl) textEl.style.color = '';
 
@@ -380,6 +401,17 @@
 
         if (n.customStyle) {
             applyStyle(el, n.customStyle);
+            if (!n.parentId && !n.customStyle.border) el.style.border = 'none';
+            return;
+        }
+        if (topicMode === 'branch') {
+            if (!n.parentId) return;
+            const bg = branchColorOf(n.id);
+            const fg = contrastText(bg);
+            el.style.background = bg;
+            el.style.borderColor = bg;
+            el.style.color = fg;
+            if (textEl) textEl.style.color = fg;
             return;
         }
         if (topicMode === 'rainbow') {
@@ -407,15 +439,175 @@
     }
 
     const LEVEL_GAP = 120;
-    const SIBLING_GAP = 28;
+    const SIBLING_GAP = 40;
     const TREE_BRANCH_X = 56;
     const TREE_FIRST_GAP = 36;
+
+    function nodeDepth(id) {
+        let d = 0;
+        let cur = id;
+        while (cur && nodes[cur] && nodes[cur].parentId) {
+            d++;
+            cur = nodes[cur].parentId;
+            if (d > 64) break;
+        }
+        return d;
+    }
+
+    function layoutOf(id) {
+        let cur = id;
+        while (cur && nodes[cur]) {
+            if (nodes[cur].layout) return nodes[cur].layout;
+            cur = nodes[cur].parentId;
+        }
+        return currentLayout;
+    }
+
+    function clearDescendantLayouts(id) {
+        sortedChildren(id).forEach(k => {
+            delete k.layout;
+            clearDescendantLayouts(k.id);
+        });
+    }
+
+    function subtreeBBox(id) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const walk = nid => {
+            if (!isNodeVisible(nid) || !nodes[nid]) return;
+            const n = nodes[nid];
+            const s = nodeSizes[nid] || { w: DEFAULT_W, h: DEFAULT_H };
+            minX = Math.min(minX, n.x);
+            minY = Math.min(minY, n.y);
+            maxX = Math.max(maxX, n.x + s.w);
+            maxY = Math.max(maxY, n.y + s.h);
+            if (nodes[nid].collapsed) return;
+            sortedChildren(nid).forEach(k => walk(k.id));
+        };
+        walk(id);
+        if (!isFinite(minX)) {
+            const n = nodes[id], s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
+            return { x: n.x, y: n.y, w: s.w, h: s.h, cx: n.x + s.w / 2, cy: n.y + s.h / 2 };
+        }
+        return {
+            x: minX, y: minY, w: maxX - minX, h: maxY - minY,
+            cx: (minX + maxX) / 2, cy: (minY + maxY) / 2
+        };
+    }
+
+    function shiftSubtree(id, dx, dy) {
+        const walk = nid => {
+            if (!nodes[nid]) return;
+            nodes[nid].x += dx;
+            nodes[nid].y += dy;
+            applyNodePos(nid);
+            if (nodes[nid].collapsed) return;
+            sortedChildren(nid).forEach(k => walk(k.id));
+        };
+        walk(id);
+    }
+
+    function separateSiblingBranches(parentId, maxIters) {
+        const kids = sortedChildren(parentId).filter(k => isNodeVisible(k.id));
+        if (kids.length < 2) return false;
+        const mode = layoutOf(parentId);
+        const pad = SIBLING_GAP;
+        const iters = maxIters == null ? 8 : maxIters;
+        let moved = false;
+        const axisX = mode === 'top-down' || mode === 'bottom-up' || mode === 'tree-right';
+        const axisY = mode === 'left-right' || mode === 'right-left';
+
+        for (let iter = 0; iter < iters; iter++) {
+            let passMoved = false;
+            const boxes = kids.map(k => ({ id: k.id, b: subtreeBBox(k.id) }));
+            if (axisX) boxes.sort((a, b) => a.b.cx - b.b.cx || a.b.cy - b.b.cy);
+            else if (axisY) boxes.sort((a, b) => a.b.cy - b.b.cy || a.b.cx - b.b.cx);
+
+            for (let i = 0; i < boxes.length; i++) {
+                for (let j = i + 1; j < boxes.length; j++) {
+                    const a = boxes[i].b, b = boxes[j].b;
+                    const ox = (a.w / 2 + b.w / 2 + pad) - Math.abs(a.cx - b.cx);
+                    const oy = (a.h / 2 + b.h / 2 + pad) - Math.abs(a.cy - b.cy);
+                    if (ox <= 0 || oy <= 0) continue;
+
+                    let pushX = 0, pushY = 0;
+                    if (axisX) {
+                        pushX = (a.cx <= b.cx ? -1 : 1) * (ox / 2 + 1);
+                    } else if (axisY) {
+                        pushY = (a.cy <= b.cy ? -1 : 1) * (oy / 2 + 1);
+                    } else if (ox < oy) {
+                        pushX = (a.cx <= b.cx ? -1 : 1) * (ox / 2 + 2);
+                    } else {
+                        pushY = (a.cy <= b.cy ? -1 : 1) * (oy / 2 + 2);
+                    }
+                    shiftSubtree(boxes[i].id, pushX, pushY);
+                    shiftSubtree(boxes[j].id, -pushX, -pushY);
+                    boxes[i].b = subtreeBBox(boxes[i].id);
+                    boxes[j].b = subtreeBBox(boxes[j].id);
+                    passMoved = true;
+                    moved = true;
+                }
+            }
+            if (!passMoved) break;
+        }
+        return moved;
+    }
+
+    /** Раздвигает соседние ветки строго по оси раскладки (без наложений). */
+    function packSiblingBranches(parentId) {
+        updateSizes();
+        if (!nodes[parentId]) return;
+        const mode = layoutOf(parentId);
+        const kids = sortedChildren(parentId).filter(k => isNodeVisible(k.id));
+        if (kids.length < 2) return;
+        const pad = SIBLING_GAP;
+
+        if (mode === 'radial') {
+            separateSiblingBranches(parentId, 10);
+            return;
+        }
+
+        for (let iter = 0; iter < 16; iter++) {
+            const boxes = kids.map(k => ({ id: k.id, n: nodes[k.id], b: subtreeBBox(k.id) }));
+            let moved = false;
+
+            if (mode === 'left-right' || mode === 'right-left') {
+                boxes.sort((a, b) => a.b.cy - b.b.cy || a.n.order - b.n.order);
+                for (let i = 0; i < boxes.length - 1; i++) {
+                    const a = boxes[i].b, b = boxes[i + 1].b;
+                    const need = a.y + a.h + pad - b.y;
+                    if (need > 0) {
+                        for (let j = i + 1; j < boxes.length; j++) {
+                            shiftSubtree(boxes[j].id, 0, need);
+                            boxes[j].b = subtreeBBox(boxes[j].id);
+                        }
+                        moved = true;
+                        break;
+                    }
+                }
+            } else {
+                boxes.sort((a, b) => a.b.cx - b.b.cx || a.n.order - b.n.order);
+                for (let i = 0; i < boxes.length - 1; i++) {
+                    const a = boxes[i].b, b = boxes[i + 1].b;
+                    const need = a.x + a.w + pad - b.x;
+                    if (need > 0) {
+                        for (let j = i + 1; j < boxes.length; j++) {
+                            shiftSubtree(boxes[j].id, need, 0);
+                            boxes[j].b = subtreeBBox(boxes[j].id);
+                        }
+                        moved = true;
+                        break;
+                    }
+                }
+            }
+            if (!moved) break;
+        }
+    }
 
     /** Высота (axis=y) или ширина (axis=x) поддерева — как в XMind. */
     function fillSubtreeSpans(id, axis, spans) {
         const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
         const self = axis === 'y' ? s.h : s.w;
-        const kids = sortedChildren(id);
+        const kids = nodes[id]?.collapsed ? [] : sortedChildren(id);
         if (!kids.length) {
             spans[id] = self;
             return self;
@@ -425,8 +617,7 @@
             if (i) sum += SIBLING_GAP;
             sum += fillSubtreeSpans(k.id, axis, spans);
         });
-        // дерево вниз: дети под родителем, а не рядом
-        if (currentLayout === 'tree-right') {
+        if (layoutOf(id) === 'tree-right') {
             spans[id] = self + TREE_FIRST_GAP + sum;
         } else {
             spans[id] = Math.max(self, sum);
@@ -434,151 +625,224 @@
         return spans[id];
     }
 
-    function layoutTreeRight(rootId) {
-        const root = nodes[rootId];
-        if (!root) return;
-        const spans = {};
-        fillSubtreeSpans(rootId, 'y', spans);
-
-        const place = (id) => {
-            const n = nodes[id];
-            const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
-            const kids = sortedChildren(id);
-            applyNodePos(id);
-            if (!kids.length) return;
-
-            let cursor = n.y + s.h + TREE_FIRST_GAP;
-            const spineX = n.x + Math.min(s.w / 2, 28);
-            kids.forEach(k => {
-                const span = spans[k.id];
-                k.x = spineX + 40;
-                k.y = cursor;
-                applyNodePos(k.id);
-                place(k.id);
-                cursor += span + SIBLING_GAP;
-            });
-        };
-
-        place(rootId);
+    function subtreeHasManual(id) {
+        if (!nodes[id]) return false;
+        if (nodes[id].manual) return true;
+        return sortedChildren(id).some(k => subtreeHasManual(k.id));
     }
 
-    /** XMind-подобная раскладка: место под ветку = размер всего поддерева. */
-    function layoutDirectionalTidy(rootId) {
-        if (currentLayout === 'tree-right') {
-            layoutTreeRight(rootId);
-            return;
+    function canTidyChildren(parentId) {
+        if (mapMode === 'fixed') return true;
+        return sortedChildren(parentId).every(k => !subtreeHasManual(k.id));
+    }
+
+    function isMapFixed() {
+        return mapMode === 'fixed';
+    }
+
+    function setMapMode(mode) {
+        if (mode !== 'free' && mode !== 'fixed') return;
+        mapMode = mode;
+        syncMapModeUI();
+        document.body.classList.toggle('map-fixed', mapMode === 'fixed');
+        if (mapMode === 'fixed') {
+            Object.values(nodes).forEach(n => { delete n.manual; });
+            if (getRoot()) {
+                layoutMindMap();
+                syncCollapseUI();
+            }
         }
-        const root = nodes[rootId];
-        if (!root) return;
-        const horizontal = currentLayout === 'left-right' || currentLayout === 'right-left';
-        const axis = horizontal ? 'y' : 'x';
-        const spans = {};
-        fillSubtreeSpans(rootId, axis, spans);
-
-        const place = (id) => {
-            const n = nodes[id];
-            const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
-            const kids = sortedChildren(id);
-            if (!kids.length) {
-                applyNodePos(id);
-                return;
-            }
-
-            let total = 0;
-            kids.forEach((k, i) => {
-                if (i) total += SIBLING_GAP;
-                total += spans[k.id];
-            });
-
-            if (horizontal) {
-                const cy = n.y + s.h / 2;
-                let cursor = cy - total / 2;
-                kids.forEach(k => {
-                    const ks = nodeSizes[k.id] || { w: DEFAULT_W, h: DEFAULT_H };
-                    const span = spans[k.id];
-                    if (currentLayout === 'left-right') {
-                        k.x = n.x + s.w + LEVEL_GAP;
-                    } else {
-                        k.x = n.x - LEVEL_GAP - ks.w;
-                    }
-                    k.y = cursor + (span - ks.h) / 2;
-                    applyNodePos(k.id);
-                    place(k.id);
-                    cursor += span + SIBLING_GAP;
-                });
-            } else {
-                const cx = n.x + s.w / 2;
-                let cursor = cx - total / 2;
-                const gapY = Math.round(LEVEL_GAP * 0.7);
-                kids.forEach(k => {
-                    const ks = nodeSizes[k.id] || { w: DEFAULT_W, h: DEFAULT_H };
-                    const span = spans[k.id];
-                    k.x = cursor + (span - ks.w) / 2;
-                    k.y = currentLayout === 'top-down' ? n.y + s.h + gapY : n.y - gapY - ks.h;
-                    applyNodePos(k.id);
-                    place(k.id);
-                    cursor += span + SIBLING_GAP;
-                });
-            }
-        };
-
-        place(rootId);
+        commitChange();
     }
 
-    function layoutRadialTidy(rootId) {
-        const root = nodes[rootId];
-        if (!root) return;
+    function syncMapModeUI() {
+        document.querySelectorAll('[data-map-mode]').forEach(b => {
+            b.classList.toggle('active', b.dataset.mapMode === mapMode);
+        });
+        document.body.classList.toggle('map-fixed', mapMode === 'fixed');
+    }
+
+    /** Родитель на месте — дети и потомки по layoutOf каждого узла (XMind). */
+    function tidyChildrenOf(parentId) {
+        if (!nodes[parentId]) return;
+        updateSizes();
+        layoutTreeMixed(parentId);
+    }
+
+    function arrangeKidsVertical(id, dir) {
+        const n = nodes[id];
+        const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const kids = sortedChildren(id);
+        if (!kids.length) return;
+        const gapY = Math.round(LEVEL_GAP * 0.7);
+        const boxes = kids.map(k => {
+            const b = subtreeBBox(k.id);
+            return { id: k.id, b, w: Math.max(b.w, 1), h: Math.max(b.h, 1) };
+        });
+        let totalW = 0;
+        boxes.forEach((box, i) => {
+            if (i) totalW += SIBLING_GAP;
+            totalW += box.w;
+        });
+        const cx = n.x + s.w / 2;
+        let cursor = cx - totalW / 2;
+        boxes.forEach(box => {
+            const b = subtreeBBox(box.id);
+            const targetX = cursor;
+            const targetY = dir === 'down' ? n.y + s.h + gapY : n.y - gapY - b.h;
+            shiftSubtree(box.id, targetX - b.x, targetY - b.y);
+            cursor += Math.max(subtreeBBox(box.id).w, box.w) + SIBLING_GAP;
+        });
+        applyNodePos(id);
+    }
+
+    function arrangeKidsLogic(id, dir) {
+        const n = nodes[id];
+        const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const kids = sortedChildren(id);
+        if (!kids.length) return;
+        const boxes = kids.map(k => {
+            const b = subtreeBBox(k.id);
+            return { id: k.id, b, w: Math.max(b.w, 1), h: Math.max(b.h, 1) };
+        });
+        let totalH = 0;
+        boxes.forEach((box, i) => {
+            if (i) totalH += SIBLING_GAP;
+            totalH += box.h;
+        });
+        const cy = n.y + s.h / 2;
+        let cursor = cy - totalH / 2;
+        boxes.forEach(box => {
+            const b = subtreeBBox(box.id);
+            const targetY = cursor;
+            const targetX = dir === 'right'
+                ? n.x + s.w + LEVEL_GAP
+                : n.x - LEVEL_GAP - b.w;
+            shiftSubtree(box.id, targetX - b.x, targetY - b.y);
+            cursor += Math.max(subtreeBBox(box.id).h, box.h) + SIBLING_GAP;
+        });
+        applyNodePos(id);
+    }
+
+    function arrangeKidsTreeRight(id) {
+        const n = nodes[id];
+        const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const kids = sortedChildren(id);
+        if (!kids.length) return;
+        const spineX = n.x + Math.min(s.w / 2, 28);
+        let cursor = n.y + s.h + TREE_FIRST_GAP;
+        kids.forEach(k => {
+            const targetX = spineX + TREE_BRANCH_X;
+            const targetY = cursor;
+            shiftSubtree(k.id, targetX - k.x, targetY - k.y);
+            const b = subtreeBBox(k.id);
+            cursor = b.y + b.h + SIBLING_GAP;
+        });
+        applyNodePos(id);
+    }
+
+    function arrangeKidsRadial(id) {
+        const n = nodes[id];
+        const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const cx = n.x + s.w / 2;
+        const cy = n.y + s.h / 2;
+        const kids = sortedChildren(id);
+        if (!kids.length) return;
+
         const weights = {};
-        const calcW = id => {
-            const kids = sortedChildren(id);
-            if (!kids.length) {
-                weights[id] = 1;
+        const calcW = kidId => {
+            const kk = nodes[kidId]?.collapsed ? [] : sortedChildren(kidId);
+            if (!kk.length) {
+                weights[kidId] = 1;
                 return 1;
             }
             let w = 0;
-            kids.forEach(k => { w += calcW(k.id); });
-            weights[id] = Math.max(1, w);
-            return weights[id];
+            kk.forEach(k => { w += calcW(k.id); });
+            weights[kidId] = Math.max(1, w);
+            return weights[kidId];
         };
-        calcW(rootId);
-
-        const place = (id, dist) => {
-            const n = nodes[id];
-            const s = nodeSizes[id] || { w: DEFAULT_W, h: DEFAULT_H };
-            const cx = n.x + s.w / 2;
-            const cy = n.y + s.h / 2;
-            const kids = sortedChildren(id);
-            if (!kids.length) return;
-
-            const totalW = kids.reduce((a, k) => a + weights[k.id], 0);
-            const d = dist || CHILD_DIST;
-            let sweep, a0;
-            if (id === rootId || !n.parentId) {
-                sweep = Math.PI * 2;
-                a0 = -Math.PI / 2;
-            } else {
-                const p = nodes[n.parentId];
-                const ps = nodeSizes[p.id] || { w: DEFAULT_W, h: DEFAULT_H };
-                const dir = Math.atan2(cy - (p.y + ps.h / 2), cx - (p.x + ps.w / 2));
-                sweep = Math.min(Math.PI * 1.2, Math.PI * 0.35 + kids.length * 0.22);
-                a0 = dir - sweep / 2;
-            }
-
-            kids.forEach(k => {
-                const ks = nodeSizes[k.id] || { w: DEFAULT_W, h: DEFAULT_H };
-                const slice = (weights[k.id] / totalW) * sweep;
-                const mid = a0 + slice / 2;
-                k.x = cx + Math.cos(mid) * d - ks.w / 2;
-                k.y = cy + Math.sin(mid) * d - ks.h / 2;
-                applyNodePos(k.id);
-                place(k.id, Math.max(110, d * 0.82));
-                a0 += slice;
-            });
-        };
-        place(rootId, CHILD_DIST + 20);
+        kids.forEach(k => calcW(k.id));
+        const totalW = kids.reduce((a, k) => a + weights[k.id], 0) || 1;
+        const d = CHILD_DIST + 20;
+        let sweep, a0;
+        if (!n.parentId) {
+            sweep = Math.PI * 2;
+            a0 = -Math.PI / 2;
+        } else {
+            const p = nodes[n.parentId];
+            const ps = nodeSizes[p.id] || { w: DEFAULT_W, h: DEFAULT_H };
+            const dir = Math.atan2(cy - (p.y + ps.h / 2), cx - (p.x + ps.w / 2));
+            sweep = Math.min(Math.PI * 1.2, Math.PI * 0.35 + kids.length * 0.22);
+            a0 = dir - sweep / 2;
+        }
+        kids.forEach(k => {
+            const ks = nodeSizes[k.id] || { w: DEFAULT_W, h: DEFAULT_H };
+            const slice = (weights[k.id] / totalW) * sweep;
+            const mid = a0 + slice / 2;
+            const tx = cx + Math.cos(mid) * d - ks.w / 2;
+            const ty = cy + Math.sin(mid) * d - ks.h / 2;
+            shiftSubtree(k.id, tx - k.x, ty - k.y);
+            a0 += slice;
+        });
+        applyNodePos(id);
     }
 
-    function layoutMindMap() {
+    /** Рекурсивно: сначала дети, затем расстановка по layoutOf(узла). */
+    function layoutTreeMixed(id) {
+        const n = nodes[id];
+        if (!n) return;
+        const kids = n.collapsed ? [] : sortedChildren(id);
+        kids.forEach(k => layoutTreeMixed(k.id));
+        if (!kids.length) {
+            applyNodePos(id);
+            return;
+        }
+        const mode = layoutOf(id);
+        if (mode === 'radial') arrangeKidsRadial(id);
+        else if (mode === 'tree-right') arrangeKidsTreeRight(id);
+        else if (mode === 'left-right') arrangeKidsLogic(id, 'right');
+        else if (mode === 'right-left') arrangeKidsLogic(id, 'left');
+        else if (mode === 'bottom-up') arrangeKidsVertical(id, 'up');
+        else arrangeKidsVertical(id, 'down');
+    }
+
+    /** Поднять перекладку до самого верхнего предка без manual-веток. */
+    function reflowAround(id) {
+        updateSizes();
+        if (!nodes[id]) return;
+        if (layoutOf(id) === 'radial' && !nodes[id].parentId) return;
+
+        let top = nodes[id].parentId || id;
+        while (top && nodes[top] && nodes[top].parentId) {
+            const gp = nodes[top].parentId;
+            if (!canTidyChildren(gp)) break;
+            top = gp;
+        }
+        if (nodes[top] && canTidyChildren(top)) {
+            tidyChildrenOf(top);
+        } else if (nodes[id].parentId && canTidyChildren(nodes[id].parentId)) {
+            tidyChildrenOf(nodes[id].parentId);
+        } else if (!nodes[id].manual) {
+            clearPlacement(id);
+        }
+        syncCollapseUI();
+        drawLines();
+    }
+
+    function layoutTreeRight(rootId) {
+        layoutTreeMixed(rootId);
+    }
+
+    /** XMind-подобная раскладка с учётом layout у каждого топика. */
+    function layoutDirectionalTidy(rootId) {
+        layoutTreeMixed(rootId);
+    }
+
+    function layoutRadialTidy(rootId) {
+        layoutTreeMixed(rootId);
+    }
+
+    function layoutMindMap(opts) {
         updateSizes();
         const root = getRoot();
         if (!root) {
@@ -586,10 +850,11 @@
             return;
         }
         const ax = root.x, ay = root.y;
-        Object.keys(nodes).forEach(id => ensureChildOrders(id));
+        if (!opts || opts.reorder !== false) {
+            Object.keys(nodes).forEach(nid => ensureChildOrders(nid));
+        }
 
-        if (currentLayout === 'radial') layoutRadialTidy(root.id);
-        else layoutDirectionalTidy(root.id);
+        layoutTreeMixed(root.id);
 
         const dx = ax - root.x;
         const dy = ay - root.y;
@@ -600,6 +865,7 @@
                 applyNodePos(n.id);
             });
         }
+        syncCollapseUI();
         drawLines();
     }
 
@@ -763,6 +1029,8 @@
         const priority = new Set(priorityIds);
         let any = false;
         const limit = maxIters == null ? COLLISION_ITERS : maxIters;
+        const preferX = currentLayout === 'top-down' || currentLayout === 'bottom-up' || currentLayout === 'tree-right';
+        const preferY = currentLayout === 'left-right' || currentLayout === 'right-left';
         for (let iter = 0; iter < limit; iter++) {
             let moved = false;
             const ids = Object.keys(nodes);
@@ -775,7 +1043,11 @@
                     if (overlapX <= 0 || overlapY <= 0) continue;
 
                     let pushX = 0, pushY = 0;
-                    if (overlapX < overlapY) {
+                    if (preferX) {
+                        pushX = (a.cx <= b.cx ? -1 : 1) * (overlapX / 2);
+                    } else if (preferY) {
+                        pushY = (a.cy <= b.cy ? -1 : 1) * (overlapY / 2);
+                    } else if (overlapX < overlapY) {
                         pushX = (a.cx <= b.cx ? -1 : 1) * (overlapX / 2);
                     } else {
                         pushY = (a.cy <= b.cy ? -1 : 1) * (overlapY / 2);
@@ -885,9 +1157,133 @@
     }
 
     function settleNode(id) {
-        updateSizes();
         if (!nodes[id]) return;
-        layoutMindMap();
+        if (mapMode === 'fixed') {
+            reflowAround(nodes[id].parentId || id);
+            return;
+        }
+        const n = nodes[id];
+        if (n.parentId && canTidyChildren(n.parentId)) {
+            tidyChildrenOf(n.parentId);
+            packSiblingBranches(n.parentId);
+        } else if (n.parentId) {
+            clearPlacement(id, [n.parentId]);
+            packSiblingBranches(n.parentId);
+        } else {
+            clearPlacement(id);
+        }
+        syncCollapseUI();
+        drawLines();
+    }
+
+    function placeFreeFirstChild(parent, child, mode) {
+        const ps = nodeSizes[parent.id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const s = nodeSizes[child.id] || { w: DEFAULT_W, h: DEFAULT_H };
+        const gapY = Math.round(LEVEL_GAP * 0.7);
+        if (mode === 'left-right') {
+            child.x = parent.x + ps.w + LEVEL_GAP;
+            child.y = parent.y + (ps.h - s.h) / 2;
+        } else if (mode === 'right-left') {
+            child.x = parent.x - LEVEL_GAP - s.w;
+            child.y = parent.y + (ps.h - s.h) / 2;
+        } else if (mode === 'top-down' || mode === 'tree-right') {
+            child.x = parent.x + (ps.w - s.w) / 2;
+            child.y = parent.y + ps.h + gapY;
+        } else if (mode === 'bottom-up') {
+            child.x = parent.x + (ps.w - s.w) / 2;
+            child.y = parent.y - s.h - gapY;
+        } else {
+            child.x = parent.x + ps.w + Math.round(CHILD_DIST * 0.7);
+            child.y = parent.y + (ps.h - s.h) / 2;
+        }
+    }
+
+    function placeFreeSiblingAppend(parentId, childId, mode) {
+        const parent = nodes[parentId];
+        const child = nodes[childId];
+        const ps = nodeSizes[parentId] || { w: DEFAULT_W, h: DEFAULT_H };
+        const s = nodeSizes[childId] || { w: DEFAULT_W, h: DEFAULT_H };
+        const siblings = sortedChildren(parentId).filter(k => k.id !== childId);
+        const gapY = Math.round(LEVEL_GAP * 0.7);
+
+        if (!siblings.length) {
+            placeFreeFirstChild(parent, child, mode);
+            applyNodePos(childId);
+            return;
+        }
+
+        if (mode === 'top-down' || mode === 'tree-right' || mode === 'bottom-up') {
+            let box = subtreeBBox(siblings[0].id);
+            siblings.forEach(k => {
+                const b = subtreeBBox(k.id);
+                if (b.x + b.w > box.x + box.w) box = b;
+            });
+            child.x = box.x + box.w + SIBLING_GAP;
+            child.y = mode === 'bottom-up'
+                ? parent.y - s.h - gapY
+                : parent.y + ps.h + gapY;
+            const avgY = siblings.reduce((sum, k) => sum + k.y, 0) / siblings.length;
+            child.y = avgY;
+        } else if (mode === 'left-right' || mode === 'right-left') {
+            let box = subtreeBBox(siblings[0].id);
+            siblings.forEach(k => {
+                const b = subtreeBBox(k.id);
+                if (b.y + b.h > box.y + box.h) box = b;
+            });
+            child.y = box.y + box.h + SIBLING_GAP;
+            child.x = mode === 'left-right'
+                ? parent.x + ps.w + LEVEL_GAP
+                : parent.x - LEVEL_GAP - s.w;
+            const avgX = siblings.reduce((sum, k) => sum + k.x, 0) / siblings.length;
+            child.x = avgX;
+        } else {
+            const ps2 = nodeSizes[parentId] || { w: DEFAULT_W, h: DEFAULT_H };
+            const cx = parent.x + ps2.w / 2;
+            const cy = parent.y + ps2.h / 2;
+            const angles = siblings.map(k => {
+                const ks = nodeSizes[k.id] || { w: DEFAULT_W, h: DEFAULT_H };
+                return Math.atan2(k.y + ks.h / 2 - cy, k.x + ks.w / 2 - cx);
+            }).sort((a, b) => a - b);
+            let bestAngle = angles[angles.length - 1] + (Math.PI * 2) / (siblings.length + 1);
+            let bestGap = -1;
+            for (let i = 0; i < angles.length; i++) {
+                const a0 = angles[i];
+                const a1 = angles[(i + 1) % angles.length] + (i + 1 === angles.length ? Math.PI * 2 : 0);
+                const gap = a1 - a0;
+                if (gap > bestGap) {
+                    bestGap = gap;
+                    bestAngle = a0 + gap / 2;
+                }
+            }
+            child.x = cx + Math.cos(bestAngle) * CHILD_DIST - s.w / 2;
+            child.y = cy + Math.sin(bestAngle) * CHILD_DIST - s.h / 2;
+        }
+        applyNodePos(childId);
+    }
+
+    function placeNewChild(parentId, childId) {
+        updateSizes();
+        const parent = nodes[parentId];
+        const child = nodes[childId];
+        if (!parent || !child) return;
+        const mode = layoutOf(parentId);
+
+        if (mapMode === 'fixed') {
+            reflowAround(parentId);
+            return;
+        }
+
+        if (mode !== 'radial' && canTidyChildren(parentId)) {
+            tidyChildrenOf(parentId);
+        } else if (mode === 'radial' && canTidyChildren(parentId) && !parent.parentId) {
+            layoutRadialTidy(parentId);
+        } else {
+            placeFreeSiblingAppend(parentId, childId, mode);
+        }
+        packSiblingBranches(parentId);
+        if (parent.parentId) packSiblingBranches(parent.parentId);
+        syncCollapseUI();
+        drawLines();
     }
 
     // —— Добавление топика + автосвязь через parentId ——
@@ -910,7 +1306,7 @@
         };
         createNodeEl(nodes[id]);
         requestAnimationFrame(() => {
-            layoutSiblings(parentId);
+            placeNewChild(parentId, id);
             commitChange();
         });
         selectNode(id, false);
@@ -1446,8 +1842,11 @@
         if (noteViewId === id) closeNoteView();
         deleteNodeInternal(id);
         if (selectedId === id) selectedId = null;
-        if (getRoot()) layoutMindMap();
-        else drawLines();
+        if (getRoot() && isMapFixed()) layoutMindMap();
+        else {
+            syncCollapseUI();
+            drawLines();
+        }
         updateSelectedUI();
         updateSelInfo();
         commitChange();
@@ -1471,8 +1870,11 @@
             }
         });
         clearSelection();
-        if (removedTopics && getRoot()) layoutMindMap();
-        else drawLines();
+        if (removedTopics && getRoot() && isMapFixed()) layoutMindMap();
+        else {
+            syncCollapseUI();
+            drawLines();
+        }
         commitChange();
     }
 
@@ -1646,6 +2048,7 @@
 
     function startNodeDrag(e, id) {
         if (e.button !== 0) return;
+        if (nodes[id] && isMapFixed()) return;
         e.preventDefault();
         e.stopPropagation();
         if (!selectedIds.has(id)) selectNode(id, e.shiftKey);
@@ -1687,6 +2090,7 @@
             if (!dragState.moved) return;
             let movedNode = false;
             selectedIds.forEach(sid => {
+                if (nodes[sid] && isMapFixed()) return;
                 const item = nodes[sid] || stickers[sid];
                 const o = dragState.origins[sid];
                 if (!item || !o) return;
@@ -1711,12 +2115,23 @@
         }
         if (dragState) {
             const id = dragState.id;
-            const movedIds = [...selectedIds].filter(sid => nodes[sid]);
+            const movedIds = isMapFixed() ? [] : [...selectedIds].filter(sid => nodes[sid]);
             boardEl(id)?.classList.remove('dragging');
             if (dragState.moved) {
+                if (!isMapFixed()) {
+                    selectedIds.forEach(sid => {
+                        if (nodes[sid]) nodes[sid].manual = true;
+                    });
+                }
                 if (movedIds.length) {
                     updateSizes();
                     resolveCollisions(movedIds);
+                    const parents = new Set();
+                    movedIds.forEach(sid => {
+                        const p = nodes[sid]?.parentId;
+                        if (p) parents.add(p);
+                    });
+                    parents.forEach(pid => packSiblingBranches(pid));
                     drawLines();
                 }
                 commitChange();
@@ -1855,7 +2270,6 @@
         if (!root) return;
         updateSizes();
 
-        // якорим корень под выбран шаблона
         const rs = nodeSizes[root.id] || { w: DEFAULT_W, h: DEFAULT_H };
         const cx = WORLD / 2;
         const cy = WORLD / 2;
@@ -1877,47 +2291,85 @@
         }
         applyNodePos(root.id);
 
-        const placeLevel = (parentId) => {
-            const kids = childrenOf(parentId);
-            if (!kids.length) return;
-            kids.forEach((child, i) => {
-                const p = calcChildPos(nodes[parentId], i, kids.length);
-                const s = nodeSizes[child.id] || { w: DEFAULT_W, h: DEFAULT_H };
-                const free = findFreePosition(p.x, p.y, s.w, s.h, [child.id]);
-                child.x = free.x;
-                child.y = free.y;
-                applyNodePos(child.id);
-            });
-            // второй проход: развести siblings точнее после размеров
-            kids.forEach((child, i) => {
-                const p = calcChildPos(nodes[parentId], i, kids.length);
-                child.x = p.x;
-                child.y = p.y;
-                applyNodePos(child.id);
-            });
-            resolveCollisions(kids.map(k => k.id));
-            kids.forEach(k => placeLevel(k.id));
-        };
-
-        placeLevel(root.id);
-        updateSizes();
-        resolveCollisions();
-        drawLines();
+        Object.values(nodes).forEach(n => {
+            delete n.layout;
+            delete n.manual;
+        });
+        layoutMindMap();
+        syncCollapseUI();
         centerView();
         commitChange();
     }
 
     function syncLayoutCards() {
+        const topics = selectedNodeIds();
+        const active = (isMapFixed() && topics.length === 1)
+            ? layoutOf(topics[0])
+            : currentLayout;
         document.querySelectorAll('#layoutStyles .style-card').forEach(c => {
-            c.classList.toggle('active', c.dataset.layout === currentLayout);
+            c.classList.toggle('active', c.dataset.layout === active);
         });
     }
 
+    function clearSubtreeManual(id) {
+        if (!nodes[id]) return;
+        delete nodes[id].manual;
+        sortedChildren(id).forEach(k => clearSubtreeManual(k.id));
+    }
+
+    function applyLayoutToTopic(topicId, layoutId) {
+        const n = nodes[topicId];
+        if (!n) return;
+        if (!n.parentId) {
+            currentLayout = layoutId;
+            delete n.layout;
+            clearDescendantLayouts(topicId);
+        } else {
+            n.layout = layoutId;
+            clearDescendantLayouts(topicId);
+        }
+        clearSubtreeManual(topicId);
+    }
+
+    function applyLayoutChoice(layoutId) {
+        const topics = selectedNodeIds();
+        if (isMapFixed() && topics.length) {
+            topics.forEach(tid => applyLayoutToTopic(tid, layoutId));
+            Object.values(nodes).forEach(n => { delete n.manual; });
+            if (getRoot()) layoutMindMap();
+            else drawLines();
+            syncLayoutCards();
+            commitChange();
+            return;
+        }
+        currentLayout = layoutId;
+        Object.values(nodes).forEach(n => {
+            delete n.layout;
+            delete n.manual;
+        });
+        autoLayout();
+        syncLayoutCards();
+    }
+
+    function applyCurrentLayout() {
+        const topics = selectedNodeIds();
+        if (isMapFixed() && topics.length) {
+            const active = document.querySelector('#layoutStyles .style-card.active');
+            const layoutId = (active && active.dataset.layout) || layoutOf(topics[0]);
+            applyLayoutChoice(layoutId);
+            return;
+        }
+        applyLayoutChoice(currentLayout);
+    }
+
     function setLayout(id, applyNow) {
+        if (applyNow) {
+            applyLayoutChoice(id);
+            return;
+        }
         currentLayout = id;
         syncLayoutCards();
-        if (applyNow) autoLayout();
-        else commitChange();
+        commitChange();
     }
 
     // —— Стили ——
@@ -1933,16 +2385,13 @@
             layoutGrid.appendChild(card);
         });
 
+        document.querySelectorAll('[data-map-mode]').forEach(btn => {
+            btn.onclick = () => setMapMode(btn.dataset.mapMode);
+        });
+        syncMapModeUI();
+
         const applyBtn = document.getElementById('btnApplyLayout');
-        if (applyBtn) applyBtn.onclick = () => {
-            const ids = selectedNodeIds();
-            if (ids.length) {
-                layoutMindMap();
-                commitChange();
-            } else {
-                autoLayout();
-            }
-        };
+        if (applyBtn) applyBtn.onclick = () => applyCurrentLayout();
 
         const lineGrid = document.getElementById('lineStyles');
         if (lineGrid) {
@@ -2054,7 +2503,9 @@
         document.querySelectorAll('[data-line-mode]').forEach(btn => {
             btn.onclick = () => {
                 lineMode = btn.dataset.lineMode;
+                if (lineMode === 'branch') topicMode = 'branch';
                 syncColorUI();
+                refreshTopicColors();
                 drawLines();
                 commitChange();
             };
@@ -2062,8 +2513,10 @@
         document.querySelectorAll('[data-topic-mode]').forEach(btn => {
             btn.onclick = () => {
                 topicMode = btn.dataset.topicMode;
+                if (topicMode === 'branch') lineMode = 'branch';
                 syncColorUI();
                 refreshTopicColors();
+                drawLines();
                 commitChange();
             };
         });
@@ -2107,6 +2560,17 @@
             const el = world.querySelector(`.node[data-id="${n.id}"]`);
             if (el) applyTopicAppearance(el, n);
         });
+        drawLines();
+    }
+
+    function refreshSubtreeColors(id) {
+        const walk = nid => {
+            if (!nodes[nid]) return;
+            const el = world.querySelector(`.node[data-id="${nid}"]`);
+            if (el) applyTopicAppearance(el, nodes[nid]);
+            sortedChildren(nid).forEach(k => walk(k.id));
+        };
+        walk(id);
         drawLines();
     }
 
@@ -2304,9 +2768,13 @@
             if (!n) return;
             if (!n.customStyle) n.customStyle = {};
             n.customStyle[type] = value;
+            if (type === 'bg' && (topicMode === 'branch' || lineMode === 'branch')) {
+                n.customStyle.border = value;
+            }
             const el = world.querySelector(`.node[data-id="${id}"]`);
             if (el) applyTopicAppearance(el, n);
         });
+        drawLines();
         scheduleHistory();
         markDirty();
     }
@@ -2362,6 +2830,7 @@
             nodes,
             stickers,
             currentLayout,
+            mapMode,
             currentShape,
             bgMode,
             bgColor,
@@ -2397,6 +2866,7 @@
             nodes = data.nodes || {};
             stickers = data.stickers || {};
             currentLayout = data.currentLayout || 'radial';
+            mapMode = data.mapMode === 'fixed' ? 'fixed' : 'free';
             currentShape = 'capsule';
             bgMode = data.bgMode || 'miro';
             bgColor = data.bgColor || '#FFFFFF';
@@ -2411,6 +2881,7 @@
             applyBoardBg();
             renderAll();
             syncLayoutCards();
+            syncMapModeUI();
             syncColorUI();
             syncLineStyleCards(currentLineStyle);
             syncShapeCards(currentShape);
@@ -2438,6 +2909,7 @@
             viewport: { zoom: currentZoom, panX, panY },
             settings: {
                 layout: currentLayout,
+                mapMode,
                 shape: currentShape,
                 bgMode,
                 bgColor,
@@ -2511,6 +2983,11 @@
                 borderW: 1.5,
                 radius
             };
+        }
+        if (topicMode === 'branch') {
+            if (isRoot) return { bg: '#050038', border: '#050038', text: '#ffffff', borderW: 0, radius };
+            const bg = branchColorOf(n.id);
+            return { bg, border: bg, text: contrastText(bg), borderW: 1.5, radius };
         }
         if (topicMode === 'rainbow') {
             const bg = rainbowColor(n.id);
@@ -2884,6 +3361,7 @@
         const d = data.data || {};
         if (d.settings) {
             currentLayout = d.settings.layout || 'radial';
+            mapMode = d.settings.mapMode === 'fixed' ? 'fixed' : 'free';
             currentShape = 'capsule';
             // миграция старых настроек фона
             if (d.settings.bgMode) {
@@ -2922,6 +3400,7 @@
         applyBoardBg();
         renderAll();
         syncLayoutCards();
+        syncMapModeUI();
         syncColorUI();
         syncLineStyleCards(currentLineStyle);
         syncShapeCards('capsule');
@@ -3087,7 +3566,6 @@
         });
         drawLines();
         updateSelectedUI();
-        layoutMindMap();
         commitChange();
     };
     document.getElementById('zoomIn').onclick = () => zoomBy(1.15);

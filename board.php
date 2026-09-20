@@ -168,8 +168,16 @@
             </div>
         </div>
         <div class="panel-section">
+            <div class="panel-section-title">Режим карты</div>
+            <p class="panel-hint">Свободный — можно двигать топики. Фиксированный — сетка как в XMind, без перетаскивания</p>
+            <div class="mode-row" id="mapModeRow">
+                <button type="button" class="mode-chip active" data-map-mode="free">Свободный</button>
+                <button type="button" class="mode-chip" data-map-mode="fixed">Фиксированный</button>
+            </div>
+        </div>
+        <div class="panel-section">
             <div class="panel-section-title">Расположение топиков</div>
-            <p class="panel-hint">Без выделения — вся карта; с выделением — топик и его ветка</p>
+            <p class="panel-hint">Фиксированный режим: без выделения — вся карта; с выделением — выбранный топик и его ветка</p>
             <div class="style-grid four-col" id="layoutStyles"></div>
             <button type="button" class="btn-miro" id="btnApplyLayout" style="margin-top:8px;width:100%">Применить раскладку</button>
         </div>
@@ -180,21 +188,23 @@
         </div>
         <div class="panel-section">
             <div class="panel-section-title">Цвет линий</div>
-            <p class="panel-hint">Один цвет или радуга — у каждой связи свой оттенок</p>
+            <p class="panel-hint">По теме, свой, радуга (каждая связь своя) или ветки (линия = цвет ветки)</p>
             <div class="mode-row" id="lineModeRow">
                 <button type="button" class="mode-chip active" data-line-mode="theme">По теме</button>
                 <button type="button" class="mode-chip" data-line-mode="solid">Свой цвет</button>
                 <button type="button" class="mode-chip rainbow" data-line-mode="rainbow">Радуга</button>
+                <button type="button" class="mode-chip" data-line-mode="branch">Ветки</button>
             </div>
             <div class="swatch-row" id="lineColorRow"></div>
         </div>
         <div class="panel-section">
             <div class="panel-section-title">Цвет топиков</div>
-            <p class="panel-hint">Общий цвет или радуга — каждый топик своего цвета</p>
+            <p class="panel-hint">Радуга — каждый свой. Ветки — цвет по ветке (1-й уровень). Цвет из панели топика — только у выбранного</p>
             <div class="mode-row" id="topicModeRow">
                 <button type="button" class="mode-chip active" data-topic-mode="theme">По теме</button>
                 <button type="button" class="mode-chip" data-topic-mode="solid">Свой цвет</button>
                 <button type="button" class="mode-chip rainbow" data-topic-mode="rainbow">Радуга</button>
+                <button type="button" class="mode-chip" data-topic-mode="branch">Ветки</button>
             </div>
             <div class="swatch-row" id="topicColorRow"></div>
         </div>
