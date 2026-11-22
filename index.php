@@ -1,3 +1,9 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/config/auth.php';
+$user = mind_require_user(false);
+$spoHome = mind_spo_home_url();
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -14,7 +20,11 @@
             <span class="brand-mark"></span>
             <span class="brand-name">Ментальные карты</span>
         </div>
-        <button type="button" class="btn-primary" id="btnNew">Создать доску</button>
+        <div class="topbar-right">
+            <span class="user-chip" title="Вы вошли через СПО-ПРОГРЕСС"><?= htmlspecialchars($user['name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
+            <a class="btn-ghost" href="<?= htmlspecialchars($spoHome, ENT_QUOTES, 'UTF-8') ?>">В СПО-ПРОГРЕСС</a>
+            <button type="button" class="btn-primary" id="btnNew">Создать доску</button>
+        </div>
     </header>
 
     <main class="home">

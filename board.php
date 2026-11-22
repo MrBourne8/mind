@@ -1,3 +1,8 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/config/auth.php';
+mind_require_user(false);
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -48,6 +53,9 @@
                 <i data-lucide="cloud-check" class="save-ico"></i>
                 <span class="save-text">Сохранено</span>
             </span>
+            <button type="button" class="topbar-icon-btn" id="btnShare" title="Поделиться">
+                <i data-lucide="share-2"></i>
+            </button>
             <div class="export-wrap" id="exportWrap">
                 <button type="button" class="topbar-icon-btn" id="btnExport" title="Экспорт">
                     <i data-lucide="download"></i>
@@ -61,6 +69,27 @@
             <button type="button" class="topbar-icon-btn" id="btnStyle" title="Свойства">
                 <i data-lucide="sliders-horizontal"></i>
             </button>
+        </div>
+    </div>
+
+    <div id="shareModal" class="share-modal hidden" aria-hidden="true">
+        <div class="share-modal-card">
+            <div class="share-modal-header">
+                <span>Поделиться картой</span>
+                <button type="button" class="panel-close" id="btnCloseShare" title="Закрыть">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <p class="share-modal-hint">Любой по ссылке сможет <b>смотреть</b> карту без входа. Редактировать нельзя.</p>
+            <label class="share-toggle">
+                <input type="checkbox" id="shareEnabled">
+                <span>Публичный доступ включён</span>
+            </label>
+            <div class="share-link-row" id="shareLinkRow" style="display:none">
+                <input type="text" id="shareUrl" readonly>
+                <button type="button" class="btn-miro primary" id="btnCopyShare">Копировать</button>
+            </div>
+            <p class="share-modal-note" id="shareStatusNote">Включите доступ, чтобы получить ссылку</p>
         </div>
     </div>
 

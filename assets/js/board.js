@@ -43,6 +43,8 @@
     const MIRO_GRID = '#E5E3DF';
 
     let boardId = window.BOARD_ID || 0;
+    const READONLY = !!window.BOARD_READONLY;
+    const SHARE_TOKEN = String(window.SHARE_TOKEN || '');
     let boardTitle = 'Моя ментальная карта';
     let nodes = {};
     let stickers = {};
@@ -1291,6 +1293,7 @@
 
     // —— Добавление топика + автосвязь через parentId ——
     function addChild(parentId) {
+        if (READONLY) return null;
         const parent = nodes[parentId];
         if (!parent) return null;
         if (parent.collapsed) {
@@ -1540,38 +1543,45 @@
             el.appendChild(badge);
         }
 
-        const actions = document.createElement('div');
-        actions.className = 'node-actions';
-        const noteBtn = document.createElement('button');
-        noteBtn.type = 'button';
-        noteBtn.className = 'node-action';
-        noteBtn.title = hasNote(n) ? 'Заметка' : 'Добавить заметку';
-        noteBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>';
-        noteBtn.onmousedown = e => e.stopPropagation();
-        noteBtn.onclick = e => {
-            e.stopPropagation();
-            selectNode(n.id, false);
-            if (hasNote(n)) openNoteView(n.id, noteBtn);
-            else openNoteEditor(n.id);
-        };
-        const addBtn = document.createElement('button');
-        addBtn.type = 'button';
-        addBtn.className = 'node-action';
-        addBtn.title = 'Дочерний топик';
-        addBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12h14"/></svg>';
-        addBtn.onmousedown = e => e.stopPropagation();
-        addBtn.onclick = e => { e.stopPropagation(); addChild(n.id); };
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = 'node-action delete';
-        delBtn.title = 'Удалить';
-        delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-        delBtn.onmousedown = e => e.stopPropagation();
-        delBtn.onclick = e => { e.stopPropagation(); deleteNode(n.id); };
-        actions.appendChild(noteBtn);
-        actions.appendChild(addBtn);
-        actions.appendChild(delBtn);
-        el.appendChild(actions);
+        if (!READONLY) {
+            const actions = document.createElement('div');
+            actions.className = 'node-actions';
+            const noteBtn = document.createElement('button');
+            noteBtn.type = 'button';
+            noteBtn.className = 'node-action';
+            noteBtn.title = hasNote(n) ? 'Заметка' : 'Добавить заметку';
+            noteBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3z"/><path d="M15 3v6h6"/></svg>';
+            noteBtn.onmousedown = e => e.stopPropagation();
+            noteBtn.onclick = e => {
+                e.stopPropagation();
+                selectNode(n.id, false);
+                if (hasNote(n)) openNoteView(n.id, noteBtn);
+                else openNoteEditor(n.id);
+            };
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'node-action';
+            addBtn.title = 'Дочерний топик';
+            addBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12h14"/></svg>';
+            addBtn.onmousedown = e => e.stopPropagation();
+            addBtn.onclick = e => { e.stopPropagation(); addChild(n.id); };
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'node-action delete';
+            delBtn.title = 'Удалить';
+            delBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+            delBtn.onmousedown = e => e.stopPropagation();
+            delBtn.onclick = e => { e.stopPropagation(); deleteNode(n.id); };
+            actions.appendChild(noteBtn);
+            actions.appendChild(addBtn);
+            actions.appendChild(delBtn);
+            el.appendChild(actions);
+        } else if (hasNote(n)) {
+            const badge = el.querySelector('.node-note-badge');
+            if (!badge) {
+                // badge already added above when hasNote
+            }
+        }
 
         applyTopicAppearance(el, n);
 
@@ -1998,6 +2008,7 @@
     }
 
     function deleteSelected() {
+        if (READONLY) return;
         if (!selectedIds.size) return;
         const ids = [...selectedIds];
         if (ids.some(id => nodes[id] && !nodes[id].parentId) && !confirm('Удалить корень и всю карту?')) return;
@@ -2060,6 +2071,7 @@
     }
 
     function startEdit(id, opts = {}) {
+        if (READONLY) return;
         if (stickers[id]) {
             startStickerEdit(id, opts);
             return;
@@ -2193,6 +2205,7 @@
 
     function startNodeDrag(e, id) {
         if (e.button !== 0) return;
+        if (READONLY && nodes[id]) return;
         if (nodes[id] && isMapFixed()) return;
         e.preventDefault();
         e.stopPropagation();
@@ -2687,9 +2700,93 @@
         }
     }
 
+    // —— Публичный доступ ——
+    async function fetchShareState() {
+        if (!boardId || READONLY) return null;
+        const res = await fetch('api/share.php?id=' + boardId);
+        const data = await res.json().catch(() => ({}));
+        if (redirectIfUnauthorized(res, data)) return null;
+        if (!res.ok) throw new Error(data.error || 'Ошибка');
+        return data;
+    }
+
+    function syncShareModal(state) {
+        const enabled = !!(state && state.enabled && state.url);
+        const cb = document.getElementById('shareEnabled');
+        const row = document.getElementById('shareLinkRow');
+        const url = document.getElementById('shareUrl');
+        const note = document.getElementById('shareStatusNote');
+        if (cb) cb.checked = enabled;
+        if (row) row.style.display = enabled ? 'flex' : 'none';
+        if (url) url.value = enabled ? state.url : '';
+        if (note) {
+            note.textContent = enabled
+                ? 'Ссылка активна. Отключите доступ, чтобы закрыть просмотр.'
+                : 'Включите доступ, чтобы получить ссылку';
+        }
+    }
+
+    async function openShareModal() {
+        if (READONLY || !boardId) return;
+        const modal = document.getElementById('shareModal');
+        if (!modal) return;
+        try {
+            const state = await fetchShareState();
+            syncShareModal(state);
+        } catch (err) {
+            alert(err.message || 'Не удалось загрузить настройки доступа');
+            return;
+        }
+        modal.classList.remove('hidden');
+        modal.setAttribute('aria-hidden', 'false');
+        if (window.lucide) lucide.createIcons({ nodes: [modal], attrs: { 'stroke-width': 1.75 } });
+    }
+
+    function closeShareModal() {
+        const modal = document.getElementById('shareModal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    async function setShareEnabled(enabled) {
+        if (!boardId || READONLY) return;
+        // перед выдачей ссылки гарантированно сохраняем карту
+        if (enabled) {
+            await saveBoard(true);
+            if (Object.keys(nodes).length === 0) {
+                throw new Error('На карте нет топиков — сначала создайте содержимое');
+            }
+        }
+        const res = await fetch('api/share.php?id=' + boardId, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: !!enabled })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (redirectIfUnauthorized(res, data)) return;
+        if (!res.ok) throw new Error(data.error || 'Ошибка');
+        syncShareModal(data);
+        return data;
+    }
+
+    async function copyShareUrl() {
+        const url = document.getElementById('shareUrl')?.value || '';
+        if (!url) return;
+        try {
+            await navigator.clipboard.writeText(url);
+            const note = document.getElementById('shareStatusNote');
+            if (note) note.textContent = 'Ссылка скопирована';
+        } catch (_) {
+            document.getElementById('shareUrl')?.select();
+            document.execCommand('copy');
+        }
+    }
+
     // —— Стили ——
     function initPanels() {
         const layoutGrid = document.getElementById('layoutStyles');
+        if (!layoutGrid) return;
         layoutStyles.forEach(l => {
             const card = document.createElement('div');
             card.className = 'style-card' + (l.id === currentLayout ? ' active' : '');
@@ -2721,20 +2818,27 @@
         }
 
         const shapeGrid = document.getElementById('shapeStyles');
-        shapeStyles.forEach(s => {
-            const card = document.createElement('div');
-            card.className = 'style-card' + (s.id === currentShape ? ' active' : '');
-            card.dataset.shape = s.id;
-            card.innerHTML = `<div class="style-preview"><span class="block-preview" style="background:var(--miro-text);color:#fff;border-radius:${s.radius}">Узел</span></div><div class="style-card-name">${s.name}</div>`;
-            card.onclick = () => setShape(s.id);
-            shapeGrid.appendChild(card);
-        });
+        if (shapeGrid) {
+            shapeStyles.forEach(s => {
+                const card = document.createElement('div');
+                card.className = 'style-card' + (s.id === currentShape ? ' active' : '');
+                card.dataset.shape = s.id;
+                card.innerHTML = `<div class="style-preview"><span class="block-preview" style="background:var(--miro-text);color:#fff;border-radius:${s.radius}">Узел</span></div><div class="style-card-name">${s.name}</div>`;
+                card.onclick = () => setShape(s.id);
+                shapeGrid.appendChild(card);
+            });
+        }
 
-        document.getElementById('nodeBgColor').oninput = e => updateNodeColor('bg', e.target.value);
-        document.getElementById('nodeBorderColor').oninput = e => updateNodeColor('border', e.target.value);
-        document.getElementById('nodeTextColor').oninput = e => updateNodeColor('text', e.target.value);
-        document.getElementById('nodeLineColor').oninput = e => updateNodeLineColor(e.target.value);
-        document.getElementById('btnResetLineColor').onclick = resetNodeLineColor;
+        const bgIn = document.getElementById('nodeBgColor');
+        if (bgIn) bgIn.oninput = e => updateNodeColor('bg', e.target.value);
+        const borderIn = document.getElementById('nodeBorderColor');
+        if (borderIn) borderIn.oninput = e => updateNodeColor('border', e.target.value);
+        const textIn = document.getElementById('nodeTextColor');
+        if (textIn) textIn.oninput = e => updateNodeColor('text', e.target.value);
+        const lineIn = document.getElementById('nodeLineColor');
+        if (lineIn) lineIn.oninput = e => updateNodeLineColor(e.target.value);
+        const resetLine = document.getElementById('btnResetLineColor');
+        if (resetLine) resetLine.onclick = resetNodeLineColor;
 
         document.getElementById('btnNodeImage')?.addEventListener('click', () => {
             if (!selectedNodeIds().length) return;
@@ -2779,6 +2883,7 @@
         const lineRow = document.getElementById('lineColorRow');
         const topicRow = document.getElementById('topicColorRow');
         const bgRow = document.getElementById('bgColorRow');
+        if (!lineRow || !topicRow || !bgRow) return;
         lineRow.innerHTML = '';
         topicRow.innerHTML = '';
         bgRow.innerHTML = '';
@@ -2875,9 +2980,9 @@
         document.querySelectorAll('[data-bg-mode]').forEach(b => {
             b.classList.toggle('active', b.dataset.bgMode === bgMode);
         });
-        document.getElementById('lineColorRow').classList.toggle('disabled', lineMode !== 'solid');
-        document.getElementById('topicColorRow').classList.toggle('disabled', topicMode !== 'solid');
-        document.getElementById('bgColorRow').classList.toggle('disabled', bgMode !== 'custom');
+        document.getElementById('lineColorRow')?.classList.toggle('disabled', lineMode !== 'solid');
+        document.getElementById('topicColorRow')?.classList.toggle('disabled', topicMode !== 'solid');
+        document.getElementById('bgColorRow')?.classList.toggle('disabled', bgMode !== 'custom');
         document.querySelectorAll('#lineColorRow .color-swatch').forEach(sw => {
             sw.classList.toggle('active', lineMode === 'solid' && (sw.title || '').toLowerCase() === lineColor.toLowerCase());
         });
@@ -2965,6 +3070,7 @@
         const section = document.getElementById('selectedNodeSection');
         const title = document.getElementById('selectedNodeTitle');
         const controls = document.getElementById('selectedNodeControls');
+        if (!section || !title || !controls) return;
         let colorRow = document.getElementById('stickerColorRow');
         if (!colorRow) {
             colorRow = document.createElement('div');
@@ -3134,6 +3240,7 @@
     }
 
     function markDirty(doSave = true) {
+        if (READONLY) return;
         dirty = true;
         saveToken++;
         setSaveStatus('Не сохранено', 'dirty');
@@ -3642,12 +3749,20 @@
         else closeOutline();
     }
 
+    function redirectIfUnauthorized(res, data) {
+        if (res.status !== 401) return false;
+        window.location.href = (data && data.login) || 'https://spo-progress.ru/login.php';
+        return true;
+    }
+
     async function saveBoard(manual) {
-        if (!boardId) return;
+        if (READONLY) return true;
+        if (!boardId) return false;
         if (saveInFlight) {
             clearTimeout(saveTimer);
-            saveTimer = setTimeout(() => saveBoard(manual), 500);
-            return;
+            return new Promise(resolve => {
+                saveTimer = setTimeout(() => resolve(saveBoard(manual)), 500);
+            });
         }
         saveInFlight = true;
         const token = saveToken;
@@ -3660,6 +3775,7 @@
                 body
             });
             const data = await res.json().catch(() => ({}));
+            if (redirectIfUnauthorized(res, data)) return false;
             if (!res.ok) throw new Error(data.error || data.detail || 'Ошибка');
             if (token === saveToken) {
                 dirty = false;
@@ -3671,6 +3787,7 @@
                 saveTimer = setTimeout(() => saveBoard(), 400);
             }
             document.title = boardTitle + ' — Ментальные карты';
+            return true;
         } catch (err) {
             dirty = true;
             setSaveStatus('Ошибка', 'dirty');
@@ -3679,24 +3796,66 @@
                 clearTimeout(saveTimer);
                 saveTimer = setTimeout(() => saveBoard(), 3000);
             }
+            if (manual) throw err;
+            return false;
         } finally {
             saveInFlight = false;
         }
     }
 
+    function normalizeBoardData(raw) {
+        let d = raw;
+        if (typeof d === 'string') {
+            try { d = JSON.parse(d); } catch (_) { d = {}; }
+        }
+        if (!d || typeof d !== 'object') d = {};
+        // иногда data обёрнута ещё раз
+        if (!d.nodes && d.data && typeof d.data === 'object') d = d.data;
+        if (Array.isArray(d.nodes)) {
+            const map = {};
+            d.nodes.forEach(n => { if (n && n.id != null) map[n.id] = n; });
+            d.nodes = map;
+        }
+        if (!d.nodes || typeof d.nodes !== 'object') d.nodes = {};
+        if (!d.stickers || typeof d.stickers !== 'object') d.stickers = {};
+        return d;
+    }
+
     async function loadBoard() {
+        if (READONLY) {
+            let data = window.BOARD_BOOTSTRAP;
+            if (!data || typeof data !== 'object') {
+                if (!SHARE_TOKEN) throw new Error('Нет токена доступа');
+                const res = await fetch('api/public.php?token=' + encodeURIComponent(SHARE_TOKEN));
+                data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Карта недоступна');
+            }
+            if (data.error) console.warn(data.error);
+            boardId = data.id || 0;
+            boardTitle = data.title || 'Ментальная карта';
+            if (boardTitleEl) {
+                boardTitleEl.value = boardTitle;
+                boardTitleEl.readOnly = true;
+            }
+            document.title = boardTitle + ' — просмотр';
+            applyLoadedData(normalizeBoardData(data.data));
+            return;
+        }
         if (!boardId) {
             const res = await fetch('api/boards.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title: 'Новая доска' })
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (redirectIfUnauthorized(res, data)) return;
+            if (!res.ok) throw new Error(data.error || 'Ошибка создания');
             location.replace('board.php?id=' + data.id);
             return;
         }
         const res = await fetch('api/boards.php?id=' + boardId);
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (redirectIfUnauthorized(res, data)) return;
         if (!res.ok) {
             alert(data.error || 'Не найдено');
             location.href = 'index.php';
@@ -3705,12 +3864,15 @@
         boardTitle = data.title;
         boardTitleEl.value = data.title;
         document.title = data.title + ' — Ментальные карты';
-        const d = data.data || {};
+        applyLoadedData(normalizeBoardData(data.data));
+    }
+
+    function applyLoadedData(d) {
+        d = normalizeBoardData(d);
         if (d.settings) {
             currentLayout = d.settings.layout || 'radial';
             mapMode = d.settings.mapMode === 'fixed' ? 'fixed' : 'free';
             currentShape = 'capsule';
-            // миграция старых настроек фона
             if (d.settings.bgMode) {
                 bgMode = d.settings.bgMode;
                 bgColor = d.settings.bgColor || '#FFFFFF';
@@ -3731,18 +3893,24 @@
             topicMode = d.settings.topicMode || 'theme';
             topicColor = d.settings.topicColor || '#FFFFFF';
         }
-        if (d.nodes && typeof d.nodes === 'object' && Object.keys(d.nodes).length) {
+        const nodeKeys = Object.keys(d.nodes || {});
+        if (nodeKeys.length) {
             nodes = d.nodes;
-        } else {
+        } else if (!READONLY) {
             createInitialMap();
+        } else {
+            nodes = {};
         }
-        stickers = (d.stickers && typeof d.stickers === 'object') ? d.stickers : {};
+        stickers = (d.stickers && typeof d.stickers === 'object' && !Array.isArray(d.stickers))
+            ? d.stickers
+            : {};
         if (d.viewport) {
             currentZoom = d.viewport.zoom || 1;
-            panX = d.viewport.panX ?? 0;
-            panY = d.viewport.panY ?? 0;
+            panX = d.viewport.panX ?? d.viewport.x ?? 0;
+            panY = d.viewport.panY ?? d.viewport.y ?? 0;
         }
-        document.body.className = `theme-classic shape-capsule ${bgMode === 'custom' ? 'bg-custom' : 'bg-miro'}`;
+        const ro = READONLY ? ' readonly' : '';
+        document.body.className = `theme-classic shape-capsule ${bgMode === 'custom' ? 'bg-custom' : 'bg-miro'}${ro}`;
         document.documentElement.style.setProperty('--node-radius', '999px');
         applyBoardBg();
         renderAll();
@@ -3752,10 +3920,22 @@
         syncLineStyleCards(currentLineStyle);
         syncShapeCards('capsule');
         applyTransform();
-        recordHistory();
-        updateUndoButtons();
-        const needCenter = !d.viewport || (Number(d.viewport.panX) === 0 && Number(d.viewport.panY) === 0);
-        if (needCenter) requestAnimationFrame(centerView);
+        if (!READONLY) {
+            recordHistory();
+            updateUndoButtons();
+        }
+        const needCenter = READONLY || !d.viewport
+            || (Number(d.viewport.panX ?? d.viewport.x ?? 0) === 0
+                && Number(d.viewport.panY ?? d.viewport.y ?? 0) === 0);
+        requestAnimationFrame(() => {
+            updateSizes();
+            drawLines();
+            if (needCenter || READONLY) centerView();
+        });
+        if (READONLY) {
+            setTool('pan');
+            canvasEl.classList.add('cursor-grab');
+        }
     }
 
     function startPan(e) {
@@ -3820,23 +4000,27 @@
             e.preventDefault();
         }
         if (editingId || e.target.matches('input,textarea,[contenteditable]')) return;
-        if (e.key === 'Tab') { e.preventDefault(); addChildToSelected(); }
-        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
-        else if (e.key === 'F2') { e.preventDefault(); if (selectedId) startEdit(selectedId, { selectAll: true }); }
+        if (!READONLY && e.key === 'Tab') { e.preventDefault(); addChildToSelected(); }
+        else if (!READONLY && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); deleteSelected(); }
+        else if (!READONLY && e.key === 'F2') { e.preventDefault(); if (selectedId) startEdit(selectedId, { selectAll: true }); }
         else if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             if (selectedId && nodes[selectedId]) toggleCollapse(selectedId);
         }
         else if (e.key.toLowerCase() === 'v') setTool('select');
         else if (e.key.toLowerCase() === 'h') setTool('pan');
-        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        else if (!READONLY && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             if (e.shiftKey) redo();
             else undo();
         }
-        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
-        else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveBoard(true); }
+        else if (!READONLY && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+        else if (!READONLY && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveBoard(true); }
         else if (e.key === 'Escape') {
+            if (!document.getElementById('shareModal')?.classList.contains('hidden')) {
+                closeShareModal();
+                return;
+            }
             if (!document.getElementById('iconPicker')?.classList.contains('hidden')) {
                 closeIconPicker();
                 return;
@@ -3867,20 +4051,43 @@
     document.querySelectorAll('#leftbar .tool-btn[data-tool]').forEach(b => {
         b.addEventListener('click', () => setTool(b.dataset.tool));
     });
-    document.getElementById('btnUndo').onclick = undo;
-    document.getElementById('btnRedo').onclick = redo;
-    document.getElementById('btnAddTopic').onclick = addChildToSelected;
-    document.getElementById('btnAddSticker').onclick = addSticker;
-    document.getElementById('btnEdit').onclick = () => selectedId && startEdit(selectedId, { selectAll: true });
-    document.getElementById('btnAddRoot').onclick = addRootNode;
-    document.getElementById('btnAutoLayout').onclick = autoLayout;
+    const btnUndo = document.getElementById('btnUndo');
+    if (btnUndo) btnUndo.onclick = undo;
+    const btnRedo = document.getElementById('btnRedo');
+    if (btnRedo) btnRedo.onclick = redo;
+    const btnAddTopic = document.getElementById('btnAddTopic');
+    if (btnAddTopic) btnAddTopic.onclick = addChildToSelected;
+    const btnAddSticker = document.getElementById('btnAddSticker');
+    if (btnAddSticker) btnAddSticker.onclick = addSticker;
+    const btnEdit = document.getElementById('btnEdit');
+    if (btnEdit) btnEdit.onclick = () => selectedId && startEdit(selectedId, { selectAll: true });
+    const btnAddRoot = document.getElementById('btnAddRoot');
+    if (btnAddRoot) btnAddRoot.onclick = addRootNode;
+    const btnAutoLayout = document.getElementById('btnAutoLayout');
+    if (btnAutoLayout) btnAutoLayout.onclick = autoLayout;
     document.getElementById('btnCenter').onclick = centerView;
-    document.getElementById('btnStyle').onclick = () => {
+    document.getElementById('btnStyle')?.addEventListener('click', () => {
         closeOutline();
         closeNotePanel();
-        document.getElementById('stylePanel').classList.toggle('open');
-    };
-    document.getElementById('btnClosePanel').onclick = () => document.getElementById('stylePanel').classList.remove('open');
+        document.getElementById('stylePanel')?.classList.toggle('open');
+    });
+    document.getElementById('btnShare')?.addEventListener('click', () => openShareModal());
+    document.getElementById('btnCloseShare')?.addEventListener('click', closeShareModal);
+    document.getElementById('shareEnabled')?.addEventListener('change', async e => {
+        try {
+            await setShareEnabled(e.target.checked);
+        } catch (err) {
+            e.target.checked = !e.target.checked;
+            alert(err.message || 'Не удалось изменить доступ');
+        }
+    });
+    document.getElementById('btnCopyShare')?.addEventListener('click', () => copyShareUrl());
+    document.getElementById('shareModal')?.addEventListener('click', e => {
+        if (e.target.id === 'shareModal') closeShareModal();
+    });
+    document.getElementById('btnClosePanel')?.addEventListener('click', () => {
+        document.getElementById('stylePanel')?.classList.remove('open');
+    });
     document.getElementById('btnOutline')?.addEventListener('click', toggleOutline);
     document.getElementById('btnCloseOutline')?.addEventListener('click', closeOutline);
 
@@ -3903,9 +4110,12 @@
         if (e.target.id === 'iconPicker') closeIconPicker();
     });
 
-    document.getElementById('btnDelSel').onclick = deleteSelected;
-    document.getElementById('btnClearSel').onclick = clearSelection;
-    document.getElementById('btnResetStyle').onclick = () => {
+    const btnDelSel = document.getElementById('btnDelSel');
+    if (btnDelSel) btnDelSel.onclick = deleteSelected;
+    const btnClearSel = document.getElementById('btnClearSel');
+    if (btnClearSel) btnClearSel.onclick = clearSelection;
+    document.getElementById('btnResetStyle')?.addEventListener('click', () => {
+        if (READONLY) return;
         const ids = selectedNodeIds();
         if (!ids.length) return;
         ids.forEach(id => {
@@ -3921,18 +4131,20 @@
         drawLines();
         updateSelectedUI();
         commitChange();
-    };
+    });
     document.getElementById('zoomIn').onclick = () => zoomBy(1.15);
     document.getElementById('zoomOut').onclick = () => zoomBy(1 / 1.15);
     document.getElementById('zoomFit').onclick = centerView;
     zoomLevelEl.onclick = resetZoom;
-    boardTitleEl.onchange = () => {
-        boardTitle = boardTitleEl.value.trim() || 'Безымянная доска';
-        markDirty();
-        saveBoard(true);
-    };
+    if (boardTitleEl && !READONLY) {
+        boardTitleEl.onchange = () => {
+            boardTitle = boardTitleEl.value.trim() || 'Безымянная доска';
+            markDirty();
+            saveBoard(true);
+        };
+    }
     window.addEventListener('beforeunload', e => {
-        if (dirty) { e.preventDefault(); e.returnValue = ''; }
+        if (!READONLY && dirty) { e.preventDefault(); e.returnValue = ''; }
     });
 
     setTimeout(() => {

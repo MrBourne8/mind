@@ -42,6 +42,7 @@ function getDb(): PDO
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS boards (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 0,
             title TEXT NOT NULL DEFAULT 'Безымянная доска',
             data TEXT NOT NULL DEFAULT '{}',
             thumbnail TEXT,
@@ -49,6 +50,18 @@ function getDb(): PDO
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
     ");
+
+    // миграции
+    $cols = $pdo->query("PRAGMA table_info(boards)")->fetchAll();
+    $names = array_map(static fn($c) => $c['name'], $cols);
+    if (!in_array('user_id', $names, true)) {
+        $pdo->exec('ALTER TABLE boards ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!in_array('share_token', $names, true)) {
+        $pdo->exec('ALTER TABLE boards ADD COLUMN share_token TEXT');
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS idx_boards_user ON boards(user_id)');
+    $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_share ON boards(share_token)');
 
     return $pdo;
 }

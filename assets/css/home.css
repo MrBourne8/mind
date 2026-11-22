@@ -56,6 +56,28 @@ body {
     letter-spacing: -0.02em;
 }
 
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-chip {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+a.btn-ghost {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
 .btn-primary {
     background: var(--accent);
     color: #fff;

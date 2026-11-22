@@ -15,7 +15,11 @@ async function api(url, opts = {}) {
         headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
         ...opts
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+        window.location.href = data.login || 'https://spo-progress.ru/login.php';
+        throw new Error('Требуется вход');
+    }
     if (!res.ok) throw new Error(data.error || 'Ошибка');
     return data;
 }
