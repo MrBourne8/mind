@@ -1564,3 +1564,243 @@ input[type="color"] {
 #help b {
     color: var(--miro-text);
 }
+
+/* —— Медиа в топике —— */
+.node.has-media {
+    max-width: 320px;
+    gap: 8px;
+}
+
+.node-media {
+    position: relative;
+    flex: 0 0 auto;
+    width: var(--media-size, 32px);
+    height: var(--media-size, 32px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    overflow: visible;
+}
+
+.node-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+    pointer-events: none;
+}
+
+.node-media .node-icon {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.node-media .node-icon svg {
+    width: 100%;
+    height: 100%;
+    stroke-width: 1.75;
+}
+
+.node-media-resize {
+    position: absolute;
+    right: -5px;
+    bottom: -5px;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--miro-blue);
+    border: 1.5px solid #fff;
+    cursor: nwse-resize;
+    display: none;
+    z-index: 4;
+    box-shadow: 0 1px 3px rgba(5, 0, 56, 0.2);
+}
+
+.node.selected .node-media-resize,
+.node:hover .node-media-resize {
+    display: block;
+}
+
+.media-actions {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.media-actions .btn-miro {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+
+.media-actions .btn-miro.danger {
+    flex: 0 0 auto;
+    min-width: 36px;
+}
+
+.media-actions .btn-miro svg {
+    width: 14px;
+    height: 14px;
+}
+
+.media-size-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.media-size-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--miro-blue);
+}
+
+.media-size-val {
+    font-size: 12px;
+    color: var(--miro-text-muted);
+    min-width: 28px;
+    text-align: right;
+}
+
+/* —— Пикер иконок —— */
+.icon-picker {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: rgba(5, 0, 56, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.icon-picker.hidden {
+    display: none;
+}
+
+.icon-picker-panel {
+    width: min(720px, 100%);
+    max-height: min(80vh, 640px);
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: var(--miro-shadow-lg);
+    border: 1px solid var(--miro-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.icon-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--miro-border);
+}
+
+.icon-picker-title {
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--miro-text);
+}
+
+.icon-picker-search {
+    padding: 10px 16px 0;
+}
+
+.icon-picker-search input {
+    width: 100%;
+    border: 1px solid var(--miro-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+}
+
+.icon-picker-search input:focus {
+    border-color: var(--miro-blue);
+    box-shadow: 0 0 0 2px rgba(0, 130, 240, 0.15);
+}
+
+.icon-picker-cats {
+    display: flex;
+    gap: 6px;
+    padding: 10px 16px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+}
+
+.icon-cat-chip {
+    flex: 0 0 auto;
+    border: 1px solid var(--miro-border);
+    background: #fff;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font: 500 12px/1.2 inherit;
+    color: var(--miro-text-secondary);
+    cursor: pointer;
+}
+
+.icon-cat-chip:hover {
+    border-color: var(--miro-blue);
+    color: var(--miro-blue);
+}
+
+.icon-cat-chip.active {
+    background: #E8F3FF;
+    border-color: var(--miro-blue);
+    color: var(--miro-blue);
+}
+
+.icon-picker-grid {
+    flex: 1;
+    overflow: auto;
+    padding: 8px 12px 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 6px;
+    align-content: start;
+}
+
+.icon-pick-btn {
+    aspect-ratio: 1;
+    border: 1px solid transparent;
+    background: #F7F6F4;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--miro-text);
+    padding: 0;
+}
+
+.icon-pick-btn:hover {
+    background: #E8F3FF;
+    border-color: var(--miro-blue);
+    color: var(--miro-blue);
+}
+
+.icon-pick-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.icon-pick-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 32px 12px;
+    color: var(--miro-text-muted);
+    font-size: 13px;
+}

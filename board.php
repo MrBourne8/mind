@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mind — редактор</title>
+    <title>Ментальные карты</title>
     <link rel="stylesheet" href="assets/css/board.css">
 </head>
 <body class="theme-classic bg-miro shape-capsule">
@@ -161,6 +161,25 @@
                             <button type="button" class="btn-miro" id="btnResetLineColor" title="Сбросить цвет линии">✕</button>
                         </div>
                     </div>
+                    <div class="panel-subsection">
+                        <div class="panel-section-title" style="margin-top:10px">Медиа в топике</div>
+                        <p class="panel-hint">Изображение или иконка. Размер можно менять слайдером или за угол на топике</p>
+                        <div class="media-actions">
+                            <button type="button" class="btn-miro" id="btnNodeImage" title="Загрузить изображение">
+                                <i data-lucide="image-plus"></i> Фото
+                            </button>
+                            <button type="button" class="btn-miro" id="btnNodeIcon" title="Выбрать иконку">
+                                <i data-lucide="smile"></i> Иконка
+                            </button>
+                            <button type="button" class="btn-miro danger" id="btnNodeMediaClear" title="Убрать медиа">✕</button>
+                        </div>
+                        <input type="file" id="nodeImageInput" accept="image/*" hidden>
+                        <div class="media-size-row" id="nodeMediaSizeRow" style="display:none">
+                            <span class="color-picker-label">Размер</span>
+                            <input type="range" id="nodeMediaSize" min="16" max="128" step="2" value="32">
+                            <span class="media-size-val" id="nodeMediaSizeVal">32</span>
+                        </div>
+                    </div>
                     <div class="selected-node-actions">
                         <button type="button" class="btn-miro danger" id="btnResetStyle">Сбросить</button>
                     </div>
@@ -248,10 +267,27 @@
         <b>Tab</b> — дочерний · <b>− / число</b> на топике — свернуть · <b>/</b> — свернуть выделенный · <b>Del</b> — удалить · стикер — кнопка на панели
     </div>
 
+    <div id="iconPicker" class="icon-picker hidden" aria-hidden="true">
+        <div class="icon-picker-panel">
+            <div class="icon-picker-header">
+                <span class="icon-picker-title">Иконки</span>
+                <button type="button" class="panel-close" id="btnCloseIconPicker" title="Закрыть">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+            <div class="icon-picker-search">
+                <input type="search" id="iconSearch" placeholder="Поиск иконки…" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="icon-picker-cats" id="iconCats"></div>
+            <div class="icon-picker-grid" id="iconGrid"></div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
     <script>window.BOARD_ID = <?= (int)($_GET['id'] ?? 0) ?>;</script>
     <script src="assets/js/layouts.js"></script>
     <script src="assets/js/history.js"></script>
+    <script src="assets/js/icons.js"></script>
     <script src="assets/js/board.js"></script>
     <script>
         if (window.lucide) lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });

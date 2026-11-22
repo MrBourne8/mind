@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mind — доски</title>
+    <title>Ментальные карты</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/home.css">
@@ -12,7 +12,7 @@
     <header class="topbar">
         <div class="brand">
             <span class="brand-mark"></span>
-            <span class="brand-name">Mind</span>
+            <span class="brand-name">Ментальные карты</span>
         </div>
         <button type="button" class="btn-primary" id="btnNew">Создать доску</button>
     </header>

@@ -6,6 +6,9 @@
     const DEFAULT_W = 120;
     const DEFAULT_H = 32;
     const CHILD_DIST = 180;
+    const MEDIA_MIN = 16;
+    const MEDIA_MAX = 128;
+    const MEDIA_DEFAULT = 32;
 
     const world = document.getElementById('world');
     const linesSvg = document.getElementById('lines');
@@ -1364,6 +1367,143 @@
         nodes[c] = { id: c, text: 'Идея 3', x: 2900, y: 3140, parentId: rootId };
     }
 
+    function mediaSizeOf(n) {
+        const s = Number(n && n.media && n.media.size);
+        if (!isFinite(s)) return MEDIA_DEFAULT;
+        return Math.max(MEDIA_MIN, Math.min(MEDIA_MAX, Math.round(s)));
+    }
+
+    function hasMedia(n) {
+        return !!(n && n.media && n.media.kind && n.media.src);
+    }
+
+    function refreshLucide(root) {
+        if (!window.lucide || !root) return;
+        lucide.createIcons({ nodes: [root], attrs: { 'stroke-width': 1.75 } });
+    }
+
+    function buildNodeMediaEl(n) {
+        if (!hasMedia(n)) return null;
+        const wrap = document.createElement('div');
+        wrap.className = 'node-media';
+        wrap.style.setProperty('--media-size', mediaSizeOf(n) + 'px');
+        wrap.dataset.media = '1';
+
+        if (n.media.kind === 'image') {
+            const img = document.createElement('img');
+            img.src = n.media.src;
+            img.alt = '';
+            img.draggable = false;
+            wrap.appendChild(img);
+        } else {
+            const icon = document.createElement('span');
+            icon.className = 'node-icon';
+            icon.innerHTML = `<i data-lucide="${String(n.media.src).replace(/"/g, '')}"></i>`;
+            wrap.appendChild(icon);
+        }
+
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'node-media-resize';
+        handle.title = 'Изменить размер';
+        handle.onmousedown = e => {
+            e.preventDefault();
+            e.stopPropagation();
+            startMediaResize(e, n.id);
+        };
+        wrap.appendChild(handle);
+        return wrap;
+    }
+
+    function syncNodeMedia(id) {
+        const n = nodes[id];
+        const el = boardEl(id);
+        if (!n || !el) return;
+        el.classList.toggle('has-media', hasMedia(n));
+        const old = el.querySelector('.node-media');
+        if (old) old.remove();
+        const media = buildNodeMediaEl(n);
+        if (media) {
+            const text = el.querySelector('.node-text');
+            el.insertBefore(media, text || el.firstChild);
+            if (n.media.kind === 'icon') refreshLucide(media);
+        }
+        requestAnimationFrame(() => {
+            updateSizes();
+            drawLines();
+        });
+    }
+
+    function setNodeMedia(id, media) {
+        const n = nodes[id];
+        if (!n) return;
+        if (!media || !media.kind || !media.src) {
+            delete n.media;
+        } else {
+            n.media = {
+                kind: media.kind,
+                src: media.src,
+                size: mediaSizeOf({ media })
+            };
+        }
+        syncNodeMedia(id);
+        syncMediaSizeUI();
+        commitChange();
+    }
+
+    function setSelectedMediaSize(size) {
+        const val = Math.max(MEDIA_MIN, Math.min(MEDIA_MAX, Math.round(Number(size) || MEDIA_DEFAULT)));
+        const ids = selectedNodeIds();
+        ids.forEach(id => {
+            const n = nodes[id];
+            if (!n || !hasMedia(n)) return;
+            n.media.size = val;
+            const el = boardEl(id);
+            const media = el && el.querySelector('.node-media');
+            if (media) media.style.setProperty('--media-size', val + 'px');
+        });
+        const label = document.getElementById('nodeMediaSizeVal');
+        if (label) label.textContent = String(val);
+        requestAnimationFrame(() => {
+            updateSizes();
+            drawLines();
+        });
+        scheduleHistory();
+        markDirty();
+    }
+
+    function syncMediaSizeUI() {
+        const row = document.getElementById('nodeMediaSizeRow');
+        const range = document.getElementById('nodeMediaSize');
+        const label = document.getElementById('nodeMediaSizeVal');
+        if (!row || !range) return;
+        const ids = selectedNodeIds();
+        const withMedia = ids.map(id => nodes[id]).filter(hasMedia);
+        if (!withMedia.length) {
+            row.style.display = 'none';
+            return;
+        }
+        row.style.display = 'flex';
+        const size = mediaSizeOf(withMedia[withMedia.length - 1]);
+        range.value = String(size);
+        if (label) label.textContent = String(size);
+    }
+
+    let mediaResizeState = null;
+
+    function startMediaResize(e, id) {
+        if (e.button !== 0) return;
+        const n = nodes[id];
+        if (!hasMedia(n)) return;
+        mediaResizeState = {
+            id,
+            startX: e.clientX,
+            startY: e.clientY,
+            startSize: mediaSizeOf(n)
+        };
+        selectNode(id, false);
+    }
+
     function createNodeEl(n) {
         const el = document.createElement('div');
         const depth = nodeDepth(n.id);
@@ -1371,10 +1511,14 @@
         if (depth === 0) cls += ' root';
         else if (depth >= 2) cls += ' level-deep';
         if (hasNote(n)) cls += ' has-note';
+        if (hasMedia(n)) cls += ' has-media';
         el.className = cls;
         el.dataset.id = n.id;
         el.style.left = n.x + 'px';
         el.style.top = n.y + 'px';
+
+        const media = buildNodeMediaEl(n);
+        if (media) el.appendChild(media);
 
         const text = document.createElement('span');
         text.className = 'node-text';
@@ -1433,19 +1577,19 @@
 
         el.addEventListener('click', e => {
             e.stopPropagation();
-            if (e.target.closest('.node-note-badge') || e.target.closest('.node-action') || e.target.closest('.node-fold')) return;
+            if (e.target.closest('.node-note-badge') || e.target.closest('.node-action') || e.target.closest('.node-fold') || e.target.closest('.node-media-resize')) return;
             if (editingId && editingId !== n.id) return;
             selectNode(n.id, e.shiftKey);
         });
         el.addEventListener('dblclick', e => {
             e.stopPropagation();
             e.preventDefault();
-            if (e.target.closest('.node-fold')) return;
+            if (e.target.closest('.node-fold') || e.target.closest('.node-media-resize')) return;
             selectNode(n.id, false);
             startEdit(n.id, { clientX: e.clientX, clientY: e.clientY });
         });
         el.addEventListener('mousedown', e => {
-            if (e.target.closest('.node-action') || e.target.closest('.node-note-badge') || e.target.closest('.node-fold')) return;
+            if (e.target.closest('.node-action') || e.target.closest('.node-note-badge') || e.target.closest('.node-fold') || e.target.closest('.node-media-resize')) return;
             if (editingId === n.id) return;
             if (editingId) finishEdit(editingId);
             if (currentTool === 'pan' || spaceHeld || e.button === 1) return;
@@ -1453,6 +1597,7 @@
         });
 
         world.appendChild(el);
+        if (hasMedia(n) && n.media.kind === 'icon') refreshLucide(el);
         syncFoldBadge(n.id);
     }
 
@@ -2068,6 +2213,26 @@
     }
 
     function onPointerMove(e) {
+        if (mediaResizeState) {
+            const n = nodes[mediaResizeState.id];
+            if (!hasMedia(n)) return;
+            const delta = Math.max(
+                e.clientX - mediaResizeState.startX,
+                e.clientY - mediaResizeState.startY
+            ) / Math.max(currentZoom, 0.2);
+            const size = Math.max(MEDIA_MIN, Math.min(MEDIA_MAX, Math.round(mediaResizeState.startSize + delta)));
+            n.media.size = size;
+            const el = boardEl(n.id);
+            const media = el && el.querySelector('.node-media');
+            if (media) media.style.setProperty('--media-size', size + 'px');
+            const range = document.getElementById('nodeMediaSize');
+            const label = document.getElementById('nodeMediaSizeVal');
+            if (range) range.value = String(size);
+            if (label) label.textContent = String(size);
+            updateSizes();
+            drawLines();
+            return;
+        }
         if (panState) {
             panX = panState.ox + (e.clientX - panState.sx);
             panY = panState.oy + (e.clientY - panState.sy);
@@ -2105,6 +2270,12 @@
     }
 
     function onPointerUp(e) {
+        if (mediaResizeState) {
+            mediaResizeState = null;
+            syncMediaSizeUI();
+            commitChange();
+            return;
+        }
         if (panState) {
             endPan();
             return;
@@ -2372,6 +2543,150 @@
         commitChange();
     }
 
+    // —— Медиа / иконки ——
+    let iconPickerCat = 'all';
+
+    function initIconPicker() {
+        const cats = document.getElementById('iconCats');
+        if (!cats) return;
+        cats.innerHTML = '';
+        const allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = 'icon-cat-chip active';
+        allBtn.dataset.cat = 'all';
+        allBtn.textContent = 'Все';
+        allBtn.onclick = () => {
+            iconPickerCat = 'all';
+            cats.querySelectorAll('.icon-cat-chip').forEach(b => b.classList.toggle('active', b.dataset.cat === 'all'));
+            renderIconGrid();
+        };
+        cats.appendChild(allBtn);
+        (window.MIND_ICON_PACK || []).forEach(cat => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'icon-cat-chip';
+            btn.dataset.cat = cat.id;
+            btn.textContent = cat.name;
+            btn.onclick = () => {
+                iconPickerCat = cat.id;
+                cats.querySelectorAll('.icon-cat-chip').forEach(b => b.classList.toggle('active', b.dataset.cat === cat.id));
+                renderIconGrid();
+            };
+            cats.appendChild(btn);
+        });
+        renderIconGrid();
+    }
+
+    function iconsForPicker() {
+        const q = (document.getElementById('iconSearch')?.value || '').trim().toLowerCase();
+        let list = [];
+        if (iconPickerCat === 'all') {
+            list = window.MIND_ICON_FLAT || [];
+        } else {
+            const cat = (window.MIND_ICON_PACK || []).find(c => c.id === iconPickerCat);
+            list = cat ? cat.icons : [];
+        }
+        if (!q) return list;
+        return list.filter(name => name.toLowerCase().includes(q));
+    }
+
+    function renderIconGrid() {
+        const grid = document.getElementById('iconGrid');
+        if (!grid) return;
+        const list = iconsForPicker();
+        grid.innerHTML = '';
+        if (!list.length) {
+            grid.innerHTML = '<div class="icon-pick-empty">Ничего не найдено</div>';
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        list.forEach(name => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'icon-pick-btn';
+            btn.title = name;
+            btn.innerHTML = `<i data-lucide="${name}"></i>`;
+            btn.onclick = () => {
+                const ids = selectedNodeIds();
+                if (!ids.length) return;
+                const size = Number(document.getElementById('nodeMediaSize')?.value) || MEDIA_DEFAULT;
+                ids.forEach(id => setNodeMedia(id, { kind: 'icon', src: name, size }));
+                closeIconPicker();
+            };
+            frag.appendChild(btn);
+        });
+        grid.appendChild(frag);
+        refreshLucide(grid);
+    }
+
+    function openIconPicker() {
+        const modal = document.getElementById('iconPicker');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        modal.setAttribute('aria-hidden', 'false');
+        const search = document.getElementById('iconSearch');
+        if (search) {
+            search.value = '';
+            search.focus();
+        }
+        iconPickerCat = 'all';
+        document.querySelectorAll('#iconCats .icon-cat-chip').forEach(b => {
+            b.classList.toggle('active', b.dataset.cat === 'all');
+        });
+        renderIconGrid();
+        refreshLucide(modal);
+    }
+
+    function closeIconPicker() {
+        const modal = document.getElementById('iconPicker');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function compressImageFile(file, maxSide, quality) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error('read'));
+            reader.onload = () => {
+                const img = new Image();
+                img.onerror = () => reject(new Error('img'));
+                img.onload = () => {
+                    let w = img.width, h = img.height;
+                    const side = Math.max(w, h);
+                    if (side > maxSide) {
+                        const k = maxSide / side;
+                        w = Math.round(w * k);
+                        h = Math.round(h * k);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+                img.src = reader.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async function onNodeImagePicked(e) {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file || !file.type.startsWith('image/')) return;
+        const ids = selectedNodeIds();
+        if (!ids.length) return;
+        try {
+            const src = await compressImageFile(file, 640, 0.82);
+            const size = Number(document.getElementById('nodeMediaSize')?.value) || 48;
+            ids.forEach(id => setNodeMedia(id, { kind: 'image', src, size: Math.max(size, 40) }));
+        } catch (_) {
+            alert('Не удалось загрузить изображение');
+        }
+    }
+
     // —— Стили ——
     function initPanels() {
         const layoutGrid = document.getElementById('layoutStyles');
@@ -2420,6 +2735,25 @@
         document.getElementById('nodeTextColor').oninput = e => updateNodeColor('text', e.target.value);
         document.getElementById('nodeLineColor').oninput = e => updateNodeLineColor(e.target.value);
         document.getElementById('btnResetLineColor').onclick = resetNodeLineColor;
+
+        document.getElementById('btnNodeImage')?.addEventListener('click', () => {
+            if (!selectedNodeIds().length) return;
+            document.getElementById('nodeImageInput')?.click();
+        });
+        document.getElementById('nodeImageInput')?.addEventListener('change', onNodeImagePicked);
+        document.getElementById('btnNodeIcon')?.addEventListener('click', () => {
+            if (!selectedNodeIds().length) return;
+            openIconPicker();
+        });
+        document.getElementById('btnNodeMediaClear')?.addEventListener('click', () => {
+            selectedNodeIds().forEach(id => setNodeMedia(id, null));
+        });
+        document.getElementById('nodeMediaSize')?.addEventListener('input', e => {
+            setSelectedMediaSize(e.target.value);
+        });
+        document.getElementById('btnCloseIconPicker')?.addEventListener('click', closeIconPicker);
+        document.getElementById('iconSearch')?.addEventListener('input', () => renderIconGrid());
+        initIconPicker();
 
         const noteInput = document.getElementById('nodeNoteInput');
         if (noteInput) {
@@ -2729,6 +3063,7 @@
         const lineStylesSel = nodeIds.map(id => lineStyleOf(id));
         const commonLine = lineStylesSel.every(s => s === lineStylesSel[0]) ? lineStylesSel[0] : null;
         syncLineStyleCards(commonLine);
+        syncMediaSizeUI();
     }
 
     function selectedNodeIds() {
@@ -3048,12 +3383,24 @@
             const y = n.y - b.minY;
             const rx = Math.min(st.radius, s.h / 2, s.w / 2);
             parts.push(`<rect x="${x}" y="${y}" width="${s.w}" height="${s.h}" rx="${rx}" ry="${rx}" fill="${escapeXml(st.bg)}" stroke="${escapeXml(st.border)}" stroke-width="${st.borderW}"/>`);
-            const tx = x + s.w / 2;
+            const pad = 8;
+            let textX = x + s.w / 2;
+            if (hasMedia(n)) {
+                const ms = mediaSizeOf(n);
+                const mx = x + pad;
+                const my = y + (s.h - ms) / 2;
+                if (n.media.kind === 'image' && String(n.media.src).startsWith('data:')) {
+                    parts.push(`<image href="${n.media.src}" x="${mx}" y="${my}" width="${ms}" height="${ms}" preserveAspectRatio="xMidYMid slice"/>`);
+                } else if (n.media.kind === 'icon') {
+                    parts.push(`<circle cx="${mx + ms / 2}" cy="${my + ms / 2}" r="${ms / 2.6}" fill="none" stroke="${escapeXml(st.text)}" stroke-width="1.6"/>`);
+                }
+                textX = x + pad + ms + 6 + (s.w - pad * 2 - ms - 6) / 2;
+            }
             const ty = y + s.h / 2;
             const depth = nodeDepth(n.id);
             const fontSize = depth === 0 ? 14 : (depth >= 2 ? 12 : 13);
             const weight = depth === 0 ? 600 : 400;
-            parts.push(`<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="${weight}" fill="${escapeXml(st.text)}">${escapeXml(n.text || '')}</text>`);
+            parts.push(`<text x="${textX}" y="${ty}" text-anchor="middle" dominant-baseline="central" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="${weight}" fill="${escapeXml(st.text)}">${escapeXml(n.text || '')}</text>`);
         });
 
         Object.values(stickers).forEach(s => {
@@ -3323,7 +3670,7 @@
                 clearTimeout(saveTimer);
                 saveTimer = setTimeout(() => saveBoard(), 400);
             }
-            document.title = boardTitle + ' — Mind';
+            document.title = boardTitle + ' — Ментальные карты';
         } catch (err) {
             dirty = true;
             setSaveStatus('Ошибка', 'dirty');
@@ -3357,7 +3704,7 @@
         }
         boardTitle = data.title;
         boardTitleEl.value = data.title;
-        document.title = data.title + ' — Mind';
+        document.title = data.title + ' — Ментальные карты';
         const d = data.data || {};
         if (d.settings) {
             currentLayout = d.settings.layout || 'radial';
@@ -3490,6 +3837,10 @@
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
         else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveBoard(true); }
         else if (e.key === 'Escape') {
+            if (!document.getElementById('iconPicker')?.classList.contains('hidden')) {
+                closeIconPicker();
+                return;
+            }
             if (!document.getElementById('notePopover')?.classList.contains('hidden')) {
                 closeNoteView();
                 return;
@@ -3547,6 +3898,9 @@
     });
     document.addEventListener('click', e => {
         if (!e.target.closest('#exportWrap')) exportMenu?.classList.add('hidden');
+    });
+    document.getElementById('iconPicker')?.addEventListener('click', e => {
+        if (e.target.id === 'iconPicker') closeIconPicker();
     });
 
     document.getElementById('btnDelSel').onclick = deleteSelected;
